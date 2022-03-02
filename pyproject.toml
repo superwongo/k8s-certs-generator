@@ -6,7 +6,7 @@ authors = ["superwongo <1069291377@qq.com>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = ">=3.6,<3.11"
+python = ">=3.7,<3.11"
 
 [tool.poetry.dev-dependencies]
 pyinstaller = "^4.9"
