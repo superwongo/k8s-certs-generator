@@ -76,28 +76,28 @@ class CertsGenerator(object):
     @property
     def certs_root_dir(self):
         """正式根目录，k8s一般为/etc/kubernetes/pki"""
-        path = '{}/pki'.format(self.k8s_root_dir)
+        path = f'{self.k8s_root_dir}/pki'
         self._check_path(path)
         return path
 
     @property
     def certs_etcd_dir(self):
         """ETCD目录，k8s一般为/etc/kubernetes/pki/etcd"""
-        path = '{}/etcd'.format(self.certs_root_dir)
+        path = f'{self.certs_root_dir}/etcd'
         self._check_path(path)
         return path
 
     @property
     def certs_ssl_root_dir(self):
         """SSL文件存放目录，临时木库"""
-        path = '{}/ssl'.format(self.k8s_root_dir)
+        path = f'{self.k8s_root_dir}/ssl'
         self._check_path(path)
         return path
 
     @property
     def certs_ssl_etcd_dir(self):
         """SSL文件存放目录，临时木库"""
-        path = '{}/ssl/etcd'.format(self.k8s_root_dir)
+        path = f'{self.k8s_root_dir}/ssl/etcd'
         self._check_path(path)
         return path
 
@@ -145,6 +145,23 @@ class CertsGenerator(object):
         elif not path.is_dir():
             raise TypeError('path must be a directory')
 
+    def check_ca_exists(self):
+        ca_tuple = (
+            (self.certs_root_dir, 'ca', '集群CA证书'),
+            (self.certs_etcd_dir, 'ca', 'ETCD服务CA证书'),
+            (self.certs_root_dir, 'front-proxy-ca', '前端代理CA证书'),
+        )
+        msg_list = []
+        for path, name, desc in ca_tuple:
+            for _type in ('key', 'crt'):
+                file_name = f'{name}.{_type}'
+                ca_path = Path(path) / file_name
+                if not ca_path.exists():
+                    msg_list.append(f'{desc}{file_name}文件不存在')
+                elif not ca_path.is_file():
+                    msg_list.append(f'{desc}{file_name}非文件格式')
+        return '；'.join(msg_list)
+
     def generator_ca(self, path, name='ca', subject=None, show=False):
         """
         CA证书生成器
@@ -154,18 +171,15 @@ class CertsGenerator(object):
         :param show: 是否展示证书信息
         :return:
         """
-        self.logger.debug('开始创建CA证书：{}/{} subject：{}'.format(path, name, subject))
-        key_cmd = 'openssl genrsa -out {ca_path}/{ca_name}.key 2048'.format(
-            ca_path=path, ca_name=name
-        )
+        self.logger.debug(f'开始创建CA证书：{path}/{name} subject：{subject}')
+        key_cmd = f'openssl genrsa -out {path}/{name}.key 2048'
         subprocess.run(key_cmd, shell=True, capture_output=True, check=True)
-        ca_cmd = 'openssl req -x509 -new -nodes -key {ca_path}/{ca_name}.key ' \
-                 '-days {ca_expire} -out {ca_path}/{ca_name}.crt'
+        ca_cmd = f'openssl req -x509 -new -nodes -key {path}/{name}.key ' \
+                 f'-days {self.certs_expire} -out {path}/{name}.crt'
         if subject:
-            ca_cmd += ' -subj "{ca_subject}"'
-        ca_cmd = ca_cmd.format(ca_path=path, ca_name=name, ca_expire=self.certs_expire, ca_subject=subject)
+            ca_cmd = f'{ca_cmd} -subj "{subject}"'
         subprocess.run(ca_cmd, shell=True, capture_output=True, check=True)
-        self.logger.debug('已完成CA证书创建：{}/{} subject：{}'.format(path, name, subject))
+        self.logger.debug(f'已完成CA证书创建：{path}/{name} subject：{subject}')
         if show:
             self.show_certs(path, name)
 
@@ -176,16 +190,12 @@ class CertsGenerator(object):
         :param name: 名称
         :return:
         """
-        self.logger.debug('开始创建service account公私钥：{}/{}'.format(path, name))
-        key_cmd = 'openssl ecparam -name secp521r1 -genkey -noout -out {sa_path}/{sa_name}.key'.format(
-            sa_path=path, sa_name=name
-        )
+        self.logger.debug(f'开始创建service account公私钥：{path}/{name}')
+        key_cmd = f'openssl ecparam -name secp521r1 -genkey -noout -out {path}/{name}.key'
         subprocess.run(key_cmd, shell=True, capture_output=True, check=True)
-        sa_command = 'openssl ec -in {sa_path}/{sa_name}.key -outform PEM -pubout -out {sa_path}/{sa_name}.pub'.format(
-            sa_path=path, sa_name=name
-        )
+        sa_command = f'openssl ec -in {path}/{name}.key -outform PEM -pubout -out {path}/{name}.pub'
         subprocess.run(sa_command, shell=True, capture_output=True, check=True)
-        self.logger.debug('已完成service account公私钥创建：{}/{}'.format(path, name))
+        self.logger.debug(f'已完成service account公私钥创建：{path}/{name}')
 
     def generate_ca_all(self, show=False):
         """生成所有CA证书
@@ -228,7 +238,7 @@ class CertsGenerator(object):
         :param alt_names: 备选名称
         :return:
         """
-        self.logger.debug('开始组织创建csr的配置文件内容：{}/{}'.format(path, name))
+        self.logger.debug(f'开始组织创建csr的配置文件内容：{path}/{name}')
         csr_conf = MyConfigParser()
         # ---------- req section ---------- #
         csr_conf.add_section('req')
@@ -282,10 +292,10 @@ class CertsGenerator(object):
             # ---------- req_ext section ---------- #
             csr_conf.set('req_ext', 'subjectAltName', '@alt_names')
 
-        self.logger.debug('已组织创建csr的配置文件内容，开始生成配置文件：{}/{}'.format(path, name))
-        with open('{csr_path}/{csr_name}.conf'.format(csr_path=path, csr_name=name), 'w') as f:
+        self.logger.debug(f'已组织创建csr的配置文件内容，开始生成配置文件：{path}/{name}')
+        with open(f'{path}/{name}.conf', 'w') as f:
             csr_conf.write(f)
-        self.logger.debug('已完成csr的配置文件创建：{}/{}'.format(path, name))
+        self.logger.debug(f'已完成csr的配置文件创建：{path}/{name}')
 
     def generator_certs(self, path, name, ca_path, ca_name, ssl_path, show=False):
         """
@@ -298,19 +308,16 @@ class CertsGenerator(object):
         :param show: 是否展示证书内容
         :return:
         """
-        self.logger.debug('开始创建证书：{}/{}, ca: {}/{}'.format(path, name, ca_path, ca_name))
-        key_cmd = 'openssl genrsa -out {path}/{name}.key 2048'.format(path=path, name=name)
+        self.logger.debug(f'开始创建证书：{path}/{name}, ca: {ca_path}/{ca_name}')
+        key_cmd = f'openssl genrsa -out {path}/{name}.key 2048'
         subprocess.run(key_cmd, shell=True, capture_output=True, check=True)
-        csr_cmd = 'openssl req -new -key {path}/{name}.key -out {ssl_path}/{name}.csr -config {ssl_path}/{name}.conf'\
-            .format(path=path, name=name, ssl_path=ssl_path)
+        csr_cmd = f'openssl req -new -key {path}/{name}.key -out {ssl_path}/{name}.csr -config {ssl_path}/{name}.conf'
         subprocess.run(csr_cmd, shell=True, capture_output=True, check=True)
-        crt_cmd = 'openssl x509 -req -in {ssl_path}/{name}.csr -CA {ca_path}/{ca_name}.crt ' \
-                  '-CAkey {ca_path}/{ca_name}.key -CAcreateserial -out {path}/{name}.crt -days {ca_expire} ' \
-                  '-extensions v3_ext -extfile {ssl_path}/{name}.conf'.format(
-            path=path, name=name, ca_path=ca_path, ca_name=ca_name, ssl_path=ssl_path, ca_expire=self.certs_expire
-        )
+        crt_cmd = f'openssl x509 -req -in {ssl_path}/{name}.csr -CA {ca_path}/{ca_name}.crt ' \
+                  f'-CAkey {ca_path}/{ca_name}.key -CAcreateserial -out {path}/{name}.crt -days {self.certs_expire} ' \
+                  f'-extensions v3_ext -extfile {ssl_path}/{name}.conf'
         subprocess.run(crt_cmd, shell=True, capture_output=True, check=True)
-        self.logger.debug('已完成证书创建：{}/{}, ca: {}/{}'.format(path, name, ca_path, ca_name))
+        self.logger.debug(f'已完成证书创建：{path}/{name}, ca: {ca_path}/{ca_name}')
         if show:
             self.show_certs(path, name)
 
@@ -329,9 +336,9 @@ class CertsGenerator(object):
         ipaddr_list = ['127.0.0.1', '::1']
         ipaddr_list.extend(self._ipaddr_list)
         for index, dns in enumerate(dns_list):
-            alt_names.append(('DNS.{}'.format(index), dns))
+            alt_names.append((f'DNS.{index}', dns))
         for index, ipaddr in enumerate(ipaddr_list):
-            alt_names.append(('IP.{}'.format(index), ipaddr))
+            alt_names.append((f'IP.{index}', ipaddr))
         self.logger.info('=====开始创建etcd服务端证书csr配置文件=====')
         self.generator_csr_conf(self.certs_ssl_etcd_dir, 'server', common_name='kube-etcd', alt_names=alt_names)
         self.logger.info('=====已创建etcd服务端证书csr配置文件=====')
@@ -361,9 +368,9 @@ class CertsGenerator(object):
         ipaddr_list = ['127.0.0.1', '::1']
         ipaddr_list.extend(self._ipaddr_list)
         for index, dns in enumerate(dns_list):
-            alt_names.append(('DNS.{}'.format(index), dns))
+            alt_names.append((f'DNS.{index}', dns))
         for index, ipaddr in enumerate(ipaddr_list):
-            alt_names.append(('IP.{}'.format(index), ipaddr))
+            alt_names.append((f'IP.{index}', ipaddr))
         self.logger.info('=====开始创建etcd peer证书csr配置文件=====')
         self.generator_csr_conf(self.certs_ssl_etcd_dir, 'peer', common_name='kube-etcd-peer', alt_names=alt_names)
         self.logger.info('=====已创建etcd peer证书csr配置文件=====')
@@ -463,9 +470,9 @@ class CertsGenerator(object):
         if self._advertise_external_ipaddr:
             ipaddr_list.append(self._advertise_external_ipaddr)
         for index, dns in enumerate(dns_list):
-            alt_names.append(('DNS.{}'.format(index), dns))
+            alt_names.append((f'DNS.{index}', dns))
         for index, ipaddr in enumerate(ipaddr_list):
-            alt_names.append(('IP.{}'.format(index), ipaddr))
+            alt_names.append((f'IP.{index}', ipaddr))
         self.logger.info('=====开始创建apiserver服务端证书csr配置文件=====')
         self.generator_csr_conf(
             self.certs_ssl_root_dir,
@@ -579,26 +586,26 @@ users:
   user:
     client-certificate-data: {client_certificate_data}
     client-key-data: {client_key_data}"""
-        self.logger.debug('开始读取ca证书: {}/ca.crt'.format(self.certs_root_dir))
-        with open('{}/ca.crt'.format(self.certs_root_dir), 'rb') as f:
+        self.logger.debug(f'开始读取ca证书: {self.certs_root_dir}/ca.crt')
+        with open(f'{self.certs_root_dir}/ca.crt', 'rb') as f:
             certificate_authority_data = base64.b64encode(f.read())
-        self.logger.debug('开始读取cert证书: {}/{}.crt'.format(self.certs_ssl_root_dir, cert_name))
-        with open('{}/{}.crt'.format(self.certs_ssl_root_dir, cert_name), 'rb') as f:
+        self.logger.debug(f'开始读取cert证书: {self.certs_ssl_root_dir}/{cert_name}.crt')
+        with open(f'{self.certs_ssl_root_dir}/{cert_name}.crt', 'rb') as f:
             client_certificate_data = base64.b64encode(f.read())
-        self.logger.debug('开始读取cert key: {}/{}.key'.format(self.certs_ssl_root_dir, cert_name))
-        with open('{}/{}.key'.format(self.certs_ssl_root_dir, cert_name), 'rb') as f:
+        self.logger.debug(f'开始读取cert key: {self.certs_ssl_root_dir}/{cert_name}.key')
+        with open(f'{self.certs_ssl_root_dir}/{cert_name}.key', 'rb') as f:
             client_key_data = base64.b64encode(f.read())
         data = template.format(
             certificate_authority_data=str(certificate_authority_data),
-            api_server='https://{}:6443'.format(self._advertise_internal_ipaddr),
+            api_server=f'https://{self._advertise_internal_ipaddr}:6443',
             cn=common_name,
             client_certificate_data=str(client_certificate_data),
             client_key_data=str(client_key_data),
         )
-        self.logger.debug('开始写入cluster config文件: {}/{}.conf'.format(self.k8s_root_dir, conf_name))
-        with open('{}/{}.conf'.format(self.k8s_root_dir, conf_name), 'w') as f:
+        self.logger.debug(f'开始写入cluster config文件: {self.k8s_root_dir}/{conf_name}.conf')
+        with open(f'{self.k8s_root_dir}/{conf_name}.conf', 'w') as f:
             f.write(data)
-        self.logger.debug('已完成cluster config文件写入: {}/{}.conf'.format(self.k8s_root_dir, conf_name))
+        self.logger.debug(f'已完成cluster config文件写入: {self.k8s_root_dir}/{conf_name}.conf')
 
     def generate_cluster_config_admin(self, show=False):
         """生成集群配置文件admin.conf
@@ -710,9 +717,9 @@ users:
         shutil.rmtree(self.certs_ssl_root_dir)
 
     def show_certs(self, path, name):
-        show_cmd = 'openssl x509 -in {}/{}.crt -noout -text'.format(path, name)
+        show_cmd = f'openssl x509 -in {path}/{name}.crt -noout -text'
         ret = subprocess.run(show_cmd, shell=True, capture_output=True, check=True)
-        self.logger.info('=====证书[{}/{}.crt]内容如下：====='.format(path, name))
+        self.logger.info(f'=====证书[{path}/{name}.crt]内容如下：=====')
         self.logger.info(ret.stdout.decode())
 
 
@@ -762,17 +769,25 @@ def main():
             if not internal_ipaddr:
                 internal_ipaddr = master_ipaddr
             more_master = input('> 是否继续添加Master节点（yes/no，默认no）：')
-        internal_ipaddr = input('> 请输入Master节点对外服务内网地址（{}）：'.format(internal_ipaddr)) or internal_ipaddr
+        internal_ipaddr = input(f'> 请输入Master节点对外服务内网地址（{internal_ipaddr}）：') or internal_ipaddr
         generator.advertise_internal_ipaddr(internal_ipaddr)
         external_ipaddr = input('> 请输入Master节点对外服务外网地址（非必填）：')
         if external_ipaddr:
             generator.advertise_external_ipaddr(external_ipaddr)
+        is_renew = input('> 是否根据原CA根证书生成其他证书（yes/no，默认no）：')
+        renew = True if is_renew.lower() in ('yes', 'y') else False
+        if renew:
+            msg = generator.check_ca_exists()
+            if msg:
+                print(f'\n{msg}，退出程序！\n')
+                return
         is_show = input('> 是否展示生成证书具体信息（yes/no，默认no）：')
         show = True if is_show.lower() in ('yes', 'y') else False
         is_start = input('> 是否开始生成证书（yes/no，默认yes）：') or 'yes'
         if is_start.lower() in ('yes', 'y'):
             print('\n\n')
-            generator.generate_ca_all(show=show)
+            if not renew:
+                generator.generate_ca_all(show=show)
             generator.generate_certs_all(show=show)
             generator.generate_sa_all()
             generator.generate_cluster_config_all(show=show)
