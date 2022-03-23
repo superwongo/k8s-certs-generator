@@ -596,11 +596,11 @@ users:
         with open(f'{self.certs_ssl_root_dir}/{cert_name}.key', 'rb') as f:
             client_key_data = base64.b64encode(f.read())
         data = template.format(
-            certificate_authority_data=str(certificate_authority_data),
+            certificate_authority_data=certificate_authority_data.decode('utf8'),
             api_server=f'https://{self._advertise_internal_ipaddr}:6443',
             cn=common_name,
-            client_certificate_data=str(client_certificate_data),
-            client_key_data=str(client_key_data),
+            client_certificate_data=client_certificate_data.decode('utf8'),
+            client_key_data=client_key_data.decode('utf8'),
         )
         self.logger.debug(f'开始写入cluster config文件: {self.k8s_root_dir}/{conf_name}.conf')
         with open(f'{self.k8s_root_dir}/{conf_name}.conf', 'w') as f:
